@@ -4,6 +4,7 @@
 package widget
 
 import (
+	"encoding/hex"
 	"slices"
 	"strings"
 )
@@ -37,9 +38,32 @@ func overviewCardIDs() []string {
 	return slices.Concat(overviewDefault[0], overviewDefault[1])
 }
 
+// PluginOverviewCardID namespaces an installed plugin's card without allowing
+// its manifest id to collide with shell cards or the layout separator.
+func PluginOverviewCardID(pluginID string) string {
+	return "plugin" + hex.EncodeToString([]byte(pluginID))
+}
+
+func overviewCardIDsWithPlugins(pluginIDs []string) []string {
+	ids := overviewCardIDs()
+	for _, id := range pluginIDs {
+		ids = append(ids, PluginOverviewCardID(id))
+	}
+	return ids
+}
+
 // DefaultOverviewLayout is the layout with every card shown and open.
 func DefaultOverviewLayout() OverviewLayout {
 	return OverviewLayout{Cols: [2][]string{slices.Clone(overviewDefault[0]), slices.Clone(overviewDefault[1])}}
+}
+
+// DefaultOverviewLayoutWithPlugins places installed plugin cards in the shorter column.
+func DefaultOverviewLayoutWithPlugins(pluginIDs []string) OverviewLayout {
+	l := DefaultOverviewLayout()
+	for _, id := range pluginIDs {
+		l.Cols[l.shorter()] = append(l.Cols[l.shorter()], PluginOverviewCardID(id))
+	}
+	return l
 }
 
 // ParseOverviewLayout reads an encoded layout (Encode) from untrusted input.
@@ -49,19 +73,24 @@ func DefaultOverviewLayout() OverviewLayout {
 // forgotten, and every card the value leaves out comes back open at the end of
 // the column with fewer cards.
 func ParseOverviewLayout(value string) OverviewLayout {
+	return ParseOverviewLayoutWithPlugins(value, nil)
+}
+
+// ParseOverviewLayoutWithPlugins accepts built-in and currently installed plugin cards.
+func ParseOverviewLayoutWithPlugins(value string, pluginIDs []string) OverviewLayout {
 	fields := strings.Split(value, ".")
 	if len(fields) != 5 || fields[0] != overviewLayoutVersion {
-		return DefaultOverviewLayout()
+		return DefaultOverviewLayoutWithPlugins(pluginIDs)
 	}
 	lists := make([][]string, 4)
 	for i, field := range fields[1:] {
 		ids, ok := layoutIDs(field)
 		if !ok {
-			return DefaultOverviewLayout()
+			return DefaultOverviewLayoutWithPlugins(pluginIDs)
 		}
 		lists[i] = ids
 	}
-	known := overviewCardIDs()
+	known := overviewCardIDsWithPlugins(pluginIDs)
 	seen := map[string]bool{}
 	take := func(ids []string) []string {
 		out := []string{}
@@ -90,14 +119,15 @@ func ParseOverviewLayout(value string) OverviewLayout {
 	return l
 }
 
-// layoutIDs splits one field into card ids; any id outside a-z spoils it.
+// layoutIDs splits one field into card ids; any character outside lowercase
+// letters and digits spoils it.
 func layoutIDs(field string) ([]string, bool) {
 	if field == "" {
 		return nil, true
 	}
 	ids := strings.Split(field, "-")
 	for _, id := range ids {
-		if id == "" || strings.IndexFunc(id, func(r rune) bool { return r < 'a' || r > 'z' }) >= 0 {
+		if id == "" || strings.IndexFunc(id, func(r rune) bool { return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') }) >= 0 {
 			return nil, false
 		}
 	}

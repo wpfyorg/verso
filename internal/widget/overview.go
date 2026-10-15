@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"slices"
 	"strings"
 )
 
@@ -24,7 +25,8 @@ type Overview struct {
 
 	// Layout is where the cards stand, read from the browser (ADR-022); the
 	// zero value is the default layout.
-	Layout OverviewLayout
+	Layout      OverviewLayout
+	PluginCards []OverviewPluginCard
 
 	Firmware string
 	Kernel   string
@@ -216,10 +218,21 @@ type overviewView struct {
 
 // layout is the browser's layout, or the default where none was read.
 func (o *Overview) layout() OverviewLayout {
-	if len(o.Layout.Cols[0])+len(o.Layout.Cols[1]) == 0 {
-		return DefaultOverviewLayout()
+	pluginIDs := make([]string, 0, len(o.PluginCards))
+	for _, card := range o.PluginCards {
+		pluginIDs = append(pluginIDs, card.PluginID)
 	}
-	return o.Layout
+	if len(o.Layout.Cols[0])+len(o.Layout.Cols[1])+len(o.Layout.Hidden) == 0 {
+		return DefaultOverviewLayoutWithPlugins(pluginIDs)
+	}
+	l := o.Layout
+	for _, id := range pluginIDs {
+		cardID := PluginOverviewCardID(id)
+		if !slices.Contains(slices.Concat(l.Cols[0], l.Cols[1], l.Hidden), cardID) {
+			l.Cols[l.shorter()] = append(l.Cols[l.shorter()], cardID)
+		}
+	}
+	return l
 }
 
 func (o *Overview) renderInto(r *Renderer, out io.Writer, csrf string) error {
@@ -228,9 +241,31 @@ func (o *Overview) renderInto(r *Renderer, out io.Writer, csrf string) error {
 	for _, spec := range overviewCardSpecs() {
 		specs[spec.ID] = spec
 	}
+	for i := range o.PluginCards {
+		card := &o.PluginCards[i]
+		specs[card.ID] = overviewCardSpec{
+			ID: card.ID, Title: card.Title, Icon: card.Icon, Opens: card.Title, translate: card.Translate,
+			href: func(*Overview) string { return card.Href },
+			head: func(*Overview, func(string) string) cardHead { return cardHead{Tone: "neutral"} },
+			body: func(_ *Overview, r *Renderer, csrf string) (template.HTML, error) {
+				body := card.Body
+				if body == nil {
+					body = &Callout{Variant: "warning", Title: "Unavailable", Body: "This plugin’s Overview reading is unavailable."}
+				}
+				if card.Translate != nil {
+					translateSchema(body, card.Translate)
+					return renderToHTML(r, body, csrf)
+				}
+				return o.renderWidget(r, body, csrf)
+			},
+		}
+	}
 	v := overviewView{Verdict: o.verdict(r.tr)}
 	for col, ids := range layout.Cols {
 		for _, id := range ids {
+			if _, ok := specs[id]; !ok {
+				continue
+			}
 			card, err := o.card(r, specs[id], layout.IsClosed(id), csrf)
 			if err != nil {
 				return err
@@ -240,7 +275,14 @@ func (o *Overview) renderInto(r *Renderer, out io.Writer, csrf string) error {
 	}
 	for _, id := range layout.Hidden {
 		spec := specs[id]
-		v.Hidden = append(v.Hidden, overviewShelfView{ID: id, Title: r.tr(spec.Title), Tone: spec.head(o, r.tr).Tone})
+		if spec.ID == "" {
+			continue
+		}
+		tr := r.tr
+		if spec.translate != nil {
+			tr = spec.translate
+		}
+		v.Hidden = append(v.Hidden, overviewShelfView{ID: id, Title: tr(spec.Title), Tone: spec.head(o, tr).Tone})
 	}
 	return r.execute(out, "overview.html.tmpl", v)
 }
@@ -252,10 +294,14 @@ func (o *Overview) card(r *Renderer, spec overviewCardSpec, closed bool, csrf st
 	if err != nil {
 		return overviewCardView{}, fmt.Errorf("overview card %s: %w", spec.ID, err)
 	}
-	v := overviewCardView{ID: spec.ID, Title: r.tr(spec.Title), Icon: spec.Icon, Head: spec.head(o, r.tr), Closed: closed, Body: body}
+	tr := r.tr
+	if spec.translate != nil {
+		tr = spec.translate
+	}
+	v := overviewCardView{ID: spec.ID, Title: tr(spec.Title), Icon: spec.Icon, Head: spec.head(o, tr), Closed: closed, Body: body}
 	if spec.href != nil {
 		if v.Href = spec.href(o); v.Href != "" {
-			v.OpenLabel = fmt.Sprintf(r.tr("Open %s"), r.tr(spec.Opens))
+			v.OpenLabel = fmt.Sprintf(tr("Open %s"), tr(spec.Opens))
 		}
 	}
 	return v, nil

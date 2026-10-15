@@ -40,6 +40,7 @@ type fakeBackend struct {
 	uciErr         error                     // returned by UCISet
 	uciReadErr     error                     // returned by UCIConfig (a read the shell brokers)
 	uciReads       *int                      // counts UCIConfig calls (pointer: fakeBackend is by value)
+	uciReadSIDs    *[]string                 // records the rpcd session used for scoped reads
 	writes         *[]uciWrite               // records UCISet calls (pointer: fakeBackend is used by value)
 	uci            map[string]map[string]any // per-config read snapshots UCIConfig returns
 	committed      map[string]map[string]any // per-config committed sections UCICommitted returns
@@ -239,7 +240,10 @@ func (f fakeBackend) UCISet(_ context.Context, sid, config, section string, valu
 // UCIConfig returns the canned read snapshot for a config (the shell brokers
 // plugin reads through rpcd, ADR-007). An absent config yields an empty snapshot,
 // mirroring an operator who may not read it.
-func (f fakeBackend) UCIConfig(_ context.Context, _, config string) (map[string]any, error) {
+func (f fakeBackend) UCIConfig(_ context.Context, sid, config string) (map[string]any, error) {
+	if f.uciReadSIDs != nil {
+		*f.uciReadSIDs = append(*f.uciReadSIDs, sid)
+	}
 	if f.uciReads != nil {
 		*f.uciReads++
 	}
@@ -615,6 +619,7 @@ func (f fakeBackend) SetWebOwner(_ context.Context, _ string, owner string) erro
 type fakeTransport struct {
 	env          *plugin.Envelope
 	err          error
+	fetches      int
 	lastSocket   string
 	lastReq      plugin.Request
 	descriptions []plugin.Description // what Describe returns
@@ -623,6 +628,7 @@ type fakeTransport struct {
 }
 
 func (f *fakeTransport) Fetch(_ context.Context, socket string, req plugin.Request) (*plugin.Envelope, error) {
+	f.fetches++
 	f.lastSocket = socket
 	f.lastReq = req
 	return f.env, f.err

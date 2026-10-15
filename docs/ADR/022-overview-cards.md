@@ -42,10 +42,20 @@ fact that matters: a ruleset the kernel has not fully loaded makes the verdict
 read that something needs attention. The rule count, and the UCI read behind
 it every second, are gone.
 
-A card is built by its own functions in `internal/widget/overview_cards.go`:
-its header (`head`), its body (`body`) and the page it opens. The registry is
-the shell's. A plugin contributes no card: a plugin card would need a contract
-of its own, as the entity panel's tabs have, and is a decision of its own.
+A built-in card is built by its own functions in
+`internal/widget/overview_cards.go`: its header (`head`), its body (`body`)
+and the page it opens. The registry is the shell's. A plugin may opt into one
+read-only card with the optional manifest field
+`overview: {"path":"/overview","icon":"radio"}`. The shell supplies the
+title from the manifest name, requests only visible cards with GET and the
+operator-scoped UCI snapshot, and renders only a schema-v1 `stack`,
+`properties`, or `callout` body through its own widget renderer. The body has no
+links or actions; the card's outer door opens `/plugins/<id>/`. A bounded
+timeout and per-card containment keep a faulty plugin from failing the page.
+Plugin cards use the normal per-browser arrange/hide/close layout, refresh on
+page reload, and do not join the event stream. Layout ids are a stable `plugin`
+prefix plus the plugin id's lowercase hexadecimal bytes; only installed
+manifest ids are accepted from the layout cookie.
 
 Bodies compose the existing widgets (`Properties`, `Meter`, `Traffic`,
 `Table`, `Ports`). The Ports and Tunnels listings key their rows `interface:<name>` with

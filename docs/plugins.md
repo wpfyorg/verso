@@ -70,6 +70,7 @@ Ship a `manifest.json`. The shell discovers it by globbing the plugins directory
 | `socket` | absolute path your process listens on |
 | `schema_version` | the widget vocabulary you emit (currently `1`) |
 | `nav` | optional list of menu entries; one plugin may place several standalone pages |
+| `overview` | optional read-only Overview card: `{ "path": "/overview", "icon": "radio" }` |
 | `nav[].section` | which shell nav group the entry appears under |
 | `nav[].label` | the nav link text |
 | `nav[].path` | page path, relative to your mount (`/` = your index) |
@@ -95,6 +96,24 @@ own `section`:
   { "section": "System", "label": "Time",    "path": "/time" }
 ]
 ```
+
+### Overview card
+
+A plugin may opt into one Overview card by declaring `overview` with the fixed
+endpoint `/overview` and a shell icon name. The shell uses the manifest `name`
+as the card title and links the card's outer door to `/plugins/<id>/`. On each
+homepage request it calls only visible cards, using GET and the operator-scoped
+UCI snapshot from `acl.read`; it sends no session credential to the plugin and
+does not cache user-scoped data. The call has a bounded timeout. Reloading the
+page refreshes the card; it does not join the Overview event stream.
+
+The endpoint returns a schema-v1 envelope whose widget body uses only `stack`,
+`properties`, and `callout`. These are read-only shapes: forms, links, actions,
+commands, and staged commits make the response unavailable. Values pass through
+the shell widget renderer and its HTML escaping. A malformed response, timeout,
+or plugin failure leaves the rest of the homepage available and shows an
+unavailable callout in that card. The card participates in the normal Overview
+arrange, hide, close, and per-browser layout behavior.
 
 An entry filed under `Network` or `System` is not a menu row of its own: those two
 sections are each one row, named for the section, that opens into every page filed

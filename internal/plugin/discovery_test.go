@@ -284,3 +284,22 @@ func TestDiscoverEntityOnlyPlugin(t *testing.T) {
 		t.Error("bulk summaries capability was lost")
 	}
 }
+
+func TestDiscoverOverviewOnlyPlugin(t *testing.T) {
+	fsys := mapFS(map[string]string{
+		"plugins/odu/manifest.json": `{"id":"odu","name":"5G ODU","socket":"/run/odu.sock","schema_version":1,"nav":[],"overview":{"path":"/overview","icon":"radio"}}`,
+	})
+	got, problems := Discover(fsys, testGlob)
+	if len(problems) != 0 || len(got) != 1 || got[0].Overview == nil || got[0].Overview.Path != "/overview" || got[0].Overview.Icon != "radio" {
+		t.Fatalf("overview manifest = %+v, problems=%v", got, problems)
+	}
+}
+
+func TestDiscoverRejectsInvalidOverviewPath(t *testing.T) {
+	for _, overview := range []string{`{"path":"/","icon":"radio"}`, `{"path":"/overview","icon":""}`} {
+		fsys := mapFS(map[string]string{"plugins/x/manifest.json": `{"id":"x","name":"X","socket":"/run/x.sock","schema_version":1,"nav":[],"overview":` + overview + `}`})
+		if got, problems := Discover(fsys, testGlob); len(got) != 0 || len(problems) != 1 {
+			t.Errorf("overview %s: got=%d problems=%v", overview, len(got), problems)
+		}
+	}
+}
